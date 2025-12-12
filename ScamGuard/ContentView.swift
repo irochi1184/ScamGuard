@@ -17,23 +17,17 @@ struct ScamNumber: Identifiable {
 }
 
 struct ContentView: View {
+    @StateObject private var logic = ScamLogicEngine()
     @State private var blockInternational = true
     @State private var blockPoliceList = true
     @State private var aiCallDetection = true
     @State private var showCallWarnings = true
     @State private var autoReport = false
     @State private var notifyCrimeNews = true
-
-    private let policeListedNumbers: [ScamNumber] = [
-        .init(number: "+44 20 7946 0999", label: "国際送金要求", source: "警察庁リスト", isInternational: true, lastUpdated: "11/11 09:00"),
-        .init(number: "+65 3123 4567", label: "銀行サポート偽装", source: "警察庁リスト", isInternational: true, lastUpdated: "11/10 17:40"),
-        .init(number: "050-1234-5678", label: "自治体調査装う", source: "警察庁リスト", isInternational: false, lastUpdated: "11/09 13:20"),
-    ]
-
-    private let aiDetections: [ScamNumber] = [
-        .init(number: "+81 90-9876-5432", label: "還付金詐欺ボイスを検知", source: "AI自動検知", isInternational: false, lastUpdated: "11/11 12:05"),
-        .init(number: "+1 646-555-0100", label: "国際番号からの未承諾勧誘", source: "AI自動検知", isInternational: true, lastUpdated: "11/10 21:15"),
-    ]
+    @State private var simulationNumber = ""
+    @State private var simulationTranscript = ""
+    @State private var simulationInternational = false
+    @State private var evaluationResult: CallEvaluationResult?
 
     var body: some View {
         NavigationView {
@@ -44,6 +38,7 @@ struct ContentView: View {
                     controlPanel
                     policeListSection
                     aiDetectionSection
+                    simulationSection
                     notificationSection
                     tipsSection
                 }
@@ -135,7 +130,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            ForEach(policeListedNumbers) { item in
+            ForEach(logic.policeListedNumbers) { item in
                 ScamNumberRow(number: item)
             }
         }
@@ -155,13 +150,92 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
 
-            ForEach(aiDetections) { item in
+            ForEach(logic.aiDetections) { item in
                 ScamNumberRow(number: item)
             }
         }
         .padding()
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
         .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 4)
+    }
+
+    private var simulationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("着信評価シミュレーション", systemImage: "phone.connection")
+                    .font(.headline)
+                Spacer()
+                Text("ロジックの想定動作を確認")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("電話番号を入力", text: $simulationNumber)
+                    .textFieldStyle(.roundedBorder)
+                TextField("通話で聞こえた文面を貼り付け (例: 口座確認コード)", text: $simulationTranscript, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(2...4)
+
+                Toggle(isOn: $simulationInternational) {
+                    Text("国際番号として評価")
+                }
+                .toggleStyle(SwitchToggleStyle(tint: .blue))
+
+                Button(action: simulateCall) {
+                    HStack {
+                        Image(systemName: "play.fill")
+                        Text("評価する")
+                            .bold()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(simulationNumber.isEmpty)
+            }
+
+            if let result = evaluationResult {
+                resultView(result)
+            }
+        }
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 4)
+    }
+
+    private func resultView(_ result: CallEvaluationResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("判定: \(result.action.rawValue)")
+                    .font(.headline)
+                Spacer()
+                Text(result.timestamp, style: .time)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("理由")
+                    .font(.subheadline)
+                    .bold()
+                ForEach(result.reasons, id: \.self) { reason in
+                    bullet(reason)
+                }
+            }
+
+            if !result.notifications.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("通知・処理")
+                        .font(.subheadline)
+                        .bold()
+                    ForEach(result.notifications, id: \.self) { note in
+                        bullet(note)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue.opacity(0.05)))
     }
 
     private var notificationSection: some View {
@@ -208,6 +282,19 @@ struct ContentView: View {
             Circle().fill(Color.blue).frame(width: 6, height: 6).padding(.top, 5)
             Text(text).font(.footnote).foregroundStyle(.secondary)
         }
+    }
+
+    private func simulateCall() {
+        evaluationResult = logic.evaluateCall(
+            number: simulationNumber,
+            isInternational: simulationInternational,
+            transcript: simulationTranscript,
+            blockInternational: blockInternational,
+            blockPoliceList: blockPoliceList,
+            aiDetection: aiCallDetection,
+            showWarnings: showCallWarnings,
+            autoReport: autoReport
+        )
     }
 }
 
